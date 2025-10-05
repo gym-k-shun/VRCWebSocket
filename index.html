@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VRChat Friend Watcher — High-feature Dashboard</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#12182a; --panel2:#0e1426; --ring:#243150; --text:#e6ecff; --muted:#93a2c7;
+      --ok:#2dd4bf; --warn:#ffd166; --bad:#ff6b6b; --info:#7aa2ff; --violet:#b794f4; --accent:#8ab4ff;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1020 0%,#0f1424 100%);color:var(--text);font-family:ui-sans-serif,system-ui,Segoe UI,Helvetica,Arial}
+    a{color:var(--accent)}
+    header{position:sticky;top:0;z-index:10;background:#0f162c;border-bottom:1px solid var(--ring)}
+    .wrap{max-width:1280px;margin:0 auto;padding:14px}
+    h1{margin:4px 0;font-size:18px;letter-spacing:.3px}
+    .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    .toolbar .grp{background:var(--panel2);border:1px solid var(--ring);border-radius:12px;padding:8px;display:flex;gap:8px;align-items:center}
+    input,select,button{border-radius:10px;border:1px solid #2a365a;background:#0f1630;color:var(--text);padding:8px 10px}
+    button{cursor:pointer}
+    .pill{padding:6px 10px;border-radius:999px;border:1px solid var(--ring);display:inline-flex;gap:6px;align-items:center}
+    .dot{width:8px;height:8px;border-radius:50%}
+    .dot.connected{background:var(--ok)}
+    .dot.disconnected{background:#4b5563}
+
+    main{display:grid;grid-template-columns:1.6fr .9fr;gap:12px;max-width:1280px;margin:12px auto;padding:0 14px}
+    .panel{background:var(--panel);border:1px solid var(--ring);border-radius:14px;padding:12px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
+
+    .card{background:linear-gradient(180deg,#0f1730,#0d1328);border:1px solid #243154;border-radius:14px;padding:12px;position:relative;overflow:hidden;cursor:pointer;transition:transform .15s}
+    .card:hover{transform:scale(1.02)}
+    .card .typebar{position:absolute;inset:0 0 auto 0;height:4px;background:var(--info)}
+    .card[data-type="friend-active"] .typebar{background:var(--ok)}
+    .card[data-type="friend-location"] .typebar{background:var(--info)}
+    .card[data-type="friend-offline"] .typebar{background:#64748b}
+    .card[data-type="invite"], .card[data-type="invite-response"] .typebar{background:var(--violet)}
+    .card[data-type="friend-request"] .typebar{background:var(--warn)}
+    .card header{display:flex;gap:10px;align-items:center}
+    .avatar{width:56px;height:56px;border-radius:12px;border:1px solid #2a365a;object-fit:cover}
+    .title{font-weight:700}
+    .sub{font-size:12px;color:var(--muted)}
+    .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+    .chip{font-size:12px;padding:4px 8px;border-radius:999px;border:1px dashed #2a365a;color:#cfe0ff;background:#0b132a}
+    .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:13px;margin-top:8px}
+    .k{color:var(--muted);text-align:right}
+    .v{word-break:break-word}
+    .worldimg{width:50%;border-radius:10px;border:1px solid #2a365a;object-fit:cover;max-height:200px}
+    details summary{cursor:pointer;color:#b7c7ff}
+    pre{background:#0a1022;border:1px solid #1f2a4a;border-radius:12px;padding:10px;color:#d7e5ff;white-space:pre-wrap}
+
+    .log{height:260px;overflow:auto;background:#0a1022;border:1px solid #1f2a4a;border-radius:12px;padding:10px;font:12px ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}
+    .help{font-size:12px;color:#9bb2ff}
+    .warnBadge{position:absolute;top:8px;right:8px;font-size:11px;border:1px solid #6b332f;background:#1e0f0f;color:#ffb4b4;padding:2px 6px;border-radius:8px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>VRChat Friend Watcher — High-feature Dashboard</h1>
+      <div class="toolbar">
+        <div class="grp">
+          <label>WS URL <input id="wsUrl" size="36" placeholder="ws://localhost:8787/stream"></label>
+          <label>Auto <select id="autoconnect"><option>yes</option><option>no</option></select></label>
+          <button id="btnConnect">Connect</button>
+          <button id="btnDisconnect">Disconnect</button>
+          <span id="pill" class="pill"><span class="dot disconnected"></span><span id="pillText">disconnected</span></span>
+          <span class="pill" title="受信件数"><span>rx:</span> <b id="rx">0</b></span>
+        </div>
+        <div class="grp">
+          <label>Friend filter <input id="friendFilter" size="28" placeholder="usr_xxx, displayName"></label>
+          <label>Type <select id="typeFilter"></select></label>
+          <button id="btnClear">Clear</button>
+          <button id="btnExport">Export JSON</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h3 style="margin:6px 0 10px">観測中のフレンド</h3>
+      <div id="count" class="help" style="margin-bottom:8px">0 cards</div>
+      <div id="grid" class="grid"></div>
+    </section>
+
+    <aside class="panel">
+      <h3 style="margin:6px 0 10px">受信ログ / JSON注入</h3>
+      <div id="log" class="log"></div>
+      <details style="margin-top:8px">
+        <summary>JSON注入（テスト用）</summary>
+        <textarea id="inject" style="width:100%;height:150px;background:#0a1022;color:var(--text);border:1px solid #1f2a4a;border-radius:12px;padding:10px"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button id="btnInject">このJSONを受信</button>
+          <button id="btnSampleLoc">friend-location サンプル</button>
+          <button id="btnSampleAct">friend-active サンプル</button>
+        </div>
+      </details>
+      <details style="margin-top:8px">
+        <summary>ヘルプ / 中継設定</summary>
+        <p class="help">Node <code>ws</code> で中継（broadcast）し、このGUIが受け取ります。仕様は <a href="https://vrchat.community/websocket" target="_blank" rel="noreferrer noopener">VRChat WebSocket</a> を参照してね。</p>
+      </details>
+    </aside>
+  </main>
+
+  <script>
+  const $ = (s, r=document)=>r.querySelector(s);
+  const $$ = (s, r=document)=>Array.from(r.querySelectorAll(s));
+
+  const KNOWN_TYPES = [
+    'friend-active','friend-location','friend-offline','friend-update',
+    'notification','user-update','user-online','user-offline','friend-request',
+    'invite','invite-response'
+  ];
+  const SCHEMAS = {
+    'friend-location': ['content.userId','content.location','content.platform','content.user.id','content.world.id','content.world.name','content.world.thumbnailImageUrl'],
+    'friend-active': ['content.userId','content.platform','content.user.id'],
+    'friend-offline': ['content.userId','content.user.id'],
+    'friend-update': ['content.userId','content.user.id'],
+    'notification': ['content.message'],
+    'user-update': ['content.user.id'],
+    'user-online': ['content.user.id'],
+    'user-offline': ['content.user.id'],
+    'friend-request': ['content.user.id'],
+    'invite': ['content.world.id','content.world.name'],
+    'invite-response': ['content.response']
+  };
+
+  const state = {
+    sock:null,
+    rx:0,
+    latest:new Map(),
+    history:new Map(), // 🧠 ユーザー履歴キャッシュ
+    autoconnect:'yes'
+  };
+
+  const wsUrl = $('#wsUrl');
+  const autoconnect = $('#autoconnect');
+  const pill = $('#pill');
+  const pillText = $('#pillText');
+  const rxEl = $('#rx');
+  const friendFilter = $('#friendFilter');
+  const typeFilter = $('#typeFilter');
+  const grid = $('#grid');
+  const count = $('#count');
+  const log = $('#log');
+
+  function populateTypeFilter(){
+    typeFilter.innerHTML='';
+    const all=document.createElement('option');all.value='';all.textContent='(all types)';
+    typeFilter.append(all);
+    for(const t of KNOWN_TYPES){
+      const opt=document.createElement('option');opt.value=t;opt.textContent=t;typeFilter.append(opt);
+    }
+    const saved=localStorage.getItem('typeFilter')||'';typeFilter.value=saved;
+  }
+
+  function savePrefs(){
+    localStorage.setItem('wsUrl',wsUrl.value.trim());
+    localStorage.setItem('autoconnect',autoconnect.value);
+    localStorage.setItem('friendFilter',friendFilter.value.trim());
+    localStorage.setItem('typeFilter',typeFilter.value);
+  }
+  function loadPrefs(){
+    wsUrl.value=localStorage.getItem('wsUrl')||'ws://localhost:8787/stream';
+    autoconnect.value=localStorage.getItem('autoconnect')||'yes';
+    friendFilter.value=localStorage.getItem('friendFilter')||'';
+  }
+
+  function setConnected(ok){
+    pill.querySelector('.dot').className='dot '+(ok?'connected':'disconnected');
+    pillText.textContent=ok?'connected':'disconnected';
+  }
+  function appendLog(s){
+    const at=new Date().toISOString().replace('T',' ').split('.')[0];
+    log.textContent+=`\n[${at}] ${s}`; log.scrollTop=log.scrollHeight;
+  }
+
+  function get(obj,path){return path.split('.').reduce((o,k)=>(o&&k in o)?o[k]:undefined,obj);}
+  function validatePayload(p){
+    const type=p?.type;const req=SCHEMAS[type]||[];
+    const missing=[];for(const path of req){if(get(p,path)===undefined)missing.push(path);}
+    return{ok:missing.length===0,missing};
+  }
+  function friendlyName(p){return get(p,'content.user.displayName')||get(p,'user.displayName')||'(unknown)';}
+  function userIdOf(p){return get(p,'content.user.id')||get(p,'content.userId')||get(p,'user.id')||'(unknown)';}
+  function statusChip(label){const s=document.createElement('span');s.className='chip';s.textContent=label;return s;}
+  function passFriendFilter(p){const raw=friendFilter.value.trim().toLowerCase();if(!raw)return true;
+    const tokens=raw.split(',').map(s=>s.trim()).filter(Boolean);
+    const id=userIdOf(p).toLowerCase();const name=friendlyName(p).toLowerCase();
+    return tokens.some(t=>id.includes(t)||name.includes(t));}
+  function passTypeFilter(p){const t=typeFilter.value;if(!t)return true;return p?.type===t;}
+
+  function render(){
+    const items=Array.from(state.latest.values()).map(x=>x.data).filter(passFriendFilter).filter(passTypeFilter);
+    items.sort((a,b)=>(new Date(b.at).getTime())-(new Date(a.at).getTime()));
+    count.textContent=`${items.length} cards`;
+    grid.innerHTML='';
+    for(const d of items){
+      const c=d.content||{};const u=c.user||d.user||{};const t=d.type||'(unknown)';
+      const uid=userIdOf(d);
+      const card=document.createElement('div');card.className='card';card.dataset.type=t;
+      const warn=validatePayload(d);
+      if(!warn.ok){const badge=document.createElement('div');badge.className='warnBadge';badge.textContent=`missing: ${warn.missing.join(', ')}`;card.append(badge);}
+      const header=document.createElement('header');
+      const img=document.createElement('img');img.className='avatar';img.src=u.currentAvatarThumbnailImageUrl||u.profilePicOverrideThumbnail||'';
+      const meta=document.createElement('div');
+      const title=document.createElement('div');title.className='title';title.textContent=u.displayName||'(no name)';
+      const sub=document.createElement('div');sub.className='sub';const when=d.at?new Date(d.at).toLocaleString():'';
+      sub.textContent=[u.id||c.userId||'',when].filter(Boolean).join(' · ');
+      meta.append(title,sub);header.append(img,meta);
+      const typebar=document.createElement('div');typebar.className='typebar';card.append(typebar);card.append(header);
+
+      const chips=document.createElement('div');chips.className='chips';
+      const stateStr=u.state||c.state;if(stateStr)chips.append(statusChip(`state: ${stateStr}`));
+      if(u.status)chips.append(statusChip(`status: ${u.status}`));
+      const plat=c.platform||u.last_platform;if(plat)chips.append(statusChip(`platform: ${plat}`));
+      if(u.pronouns)chips.append(statusChip(`pronouns: ${u.pronouns}`));
+      card.append(chips);
+
+      const kv=document.createElement('div');kv.className='kv';
+      const addKV=(k,v)=>{const K=document.createElement('div');K.className='k';K.textContent=k;
+        const V=document.createElement('div');V.className='v';
+        if(/^https?:.*\.(?:png|jpg|jpeg|gif|webp)$/i.test(String(v||''))){const im=document.createElement('img');im.src=v;im.className='worldimg';V.append(im);}
+        else{V.textContent=v??'';}
+        kv.append(K,V);};
+
+      if(t==='friend-location'){
+        addKV('location',c.location);
+        addKV('travelingTo',c.travelingToLocation);
+        if(c.world){
+          addKV('world',c.world.name);
+          addKV('author',c.world.authorName);
+          addKV('capacity',`${c.world.capacity}`);
+          if(c.world.thumbnailImageUrl){
+            const K=document.createElement('div');K.className='k';K.textContent='worldThumb';
+            const V=document.createElement('div');V.className='v';
+            const im=document.createElement('img');
+            im.src=c.world.thumbnailImageUrl;
+            im.className='worldimg';
+            im.loading='lazy';
+            V.append(im);
+            kv.append(K,V);
+          }
+        }
+      } else if(t==='friend-active'){
+        addKV('statusDescription',u.statusDescription||'');
+      } else if(t==='friend-offline'){
+        addKV('last_login',u.last_login||'');
+      } else if(t==='invite'||t==='invite-response'){
+        addKV('world',c.world?.name||'');addKV('response',c.response||'');
+      } else if(t==='notification'){
+        addKV('message',c.message||'');
+      }
+
+      const det=document.createElement('details');
+      const sum=document.createElement('summary');sum.textContent='Raw JSON';
+      const pre=document.createElement('pre');pre.textContent=JSON.stringify(d,null,2);
+      det.append(sum,pre);
+      card.append(kv,det);
+
+      // 🧠 履歴閲覧クリックイベント
+      card.addEventListener('click',()=>showHistory(uid));
+
+      grid.append(card);
+    }
+  }
+
+  function showHistory(uid){
+    const logs=state.history.get(uid);
+    if(!logs||logs.length===0){alert('履歴はありません');return;}
+    const overlay=document.createElement('div');
+    overlay.style='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    const box=document.createElement('div');
+    box.style='background:var(--panel);color:var(--text);border:1px solid var(--ring);border-radius:12px;max-height:80vh;overflow:auto;padding:16px;width:min(600px,90%)';
+    box.innerHTML=`<h3 style="margin-top:0">${friendlyName(logs[0])} の履歴 (${logs.length}件)</h3>`;
+    logs.slice().reverse().forEach(p=>{
+      const d=document.createElement('pre');
+      d.textContent=JSON.stringify(p,null,2);
+      d.style='background:#0a1022;padding:10px;border-radius:8px;margin:8px 0;';
+      box.append(d);
+    });
+    const close=document.createElement('button');
+    close.textContent='閉じる';
+    close.onclick=()=>overlay.remove();
+    box.append(close);
+    overlay.append(box);
+    document.body.append(overlay);
+  }
+
+  function safeParse(data){try{return JSON.parse(data);}catch{return null;}}
+  function normalizePayload(p){const out=JSON.parse(JSON.stringify(p));
+    if(typeof out.content==='string'){try{out.content=JSON.parse(out.content);}catch{}}
+    if(!out.at)out.at=new Date().toISOString();
+    return out;
+  }
+
+  function onIncoming(raw){
+    const p0=typeof raw==='string'?safeParse(raw):raw;if(!p0)return;
+    const p=normalizePayload(p0);
+    const uid=p?.content?.user?.id||p?.content?.userId||p?.user?.id;if(!uid)return;
+    state.rx++;rxEl.textContent=String(state.rx);
+    state.latest.set(uid,{data:p,at:Date.now()});
+
+    // 🧠 履歴キャッシュ
+    if(!state.history.has(uid))state.history.set(uid,[]);
+    state.history.get(uid).push(p);
+    if(state.history.get(uid).length>20)state.history.get(uid).shift();
+
+    appendLog(`type=${p.type} uid=${uid} name=${friendlyName(p)}`);
+    const v=validatePayload(p);if(!v.ok)appendLog(`WARN missing fields: ${v.missing.join(', ')}`);
+    render();
+  }
+
+  function connect(){
+    if(state.sock)try{state.sock.close();}catch{}
+    const url=wsUrl.value.trim();if(!url){alert('WS URL を入れてね');return;}
+    const sock=new WebSocket(url);state.sock=sock;
+    sock.onopen=()=>{setConnected(true);appendLog('connected '+url);savePrefs();};
+    sock.onclose=()=>{setConnected(false);appendLog('disconnected');};
+    sock.onerror=()=>appendLog('socket error');
+    sock.onmessage=ev=>onIncoming(ev.data);
+  }
+
+  $('#btnConnect').onclick=connect;
+  $('#btnDisconnect').onclick=()=>{if(state.sock)state.sock.close();};
+  $('#btnClear').onclick=()=>{state.latest.clear();state.rx=0;rxEl.textContent='0';log.textContent='';render();};
+  $('#btnExport').onclick=()=>{const obj=Object.fromEntries(Array.from(state.latest).map(([k,v])=>[k,v.data]));
+    const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='vrchat-friend-snapshots.json';a.click();URL.revokeObjectURL(a.href);};
+  friendFilter.oninput=()=>{savePrefs();render();};
+  typeFilter.onchange=()=>{savePrefs();render();};
+  autoconnect.onchange=()=>savePrefs();
+
+  $('#btnInject').onclick=()=>{const t=$('#inject').value.trim();if(!t)return;onIncoming(t);};
+  $('#btnSampleLoc').onclick=()=>{$('#inject').value=JSON.stringify({
+    type:'friend-location',
+    content:{userId:'usr_XXXXX',platform:'standalonewindows',location:'traveling',travelingToLocation:'wrld_xxx:00000~region(jp)',
+      world:{id:'wrld_xxx',name:'EVEREST WALKING SIMULATOR',thumbnailImageUrl:'',description:'social experiment',capacity:80,authorName:'Theslythief'},
+      user:{id:'usr_XXXXX',displayName:'USER_NAME',state:'active',pronouns:'he/him',currentAvatarThumbnailImageUrl:''}
+    }},null,2);};
+  $('#btnSampleAct').onclick=()=>{$('#inject').value=JSON.stringify({
+    type:'friend-active',
+    content:{userId:'usr_XXXXX',platform:'web',user:{id:'usr_XXXXX',displayName:'ΛИΛL',status:'active',state:'online',pronouns:'ze/zir',currentAvatarThumbnailImageUrl:''}}},null,2);};
+
+  loadPrefs();populateTypeFilter();setConnected(false);if(autoconnect.value==='yes')setTimeout(connect,150);
+  </script>
+</body>
+</html>
